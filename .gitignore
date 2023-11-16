@@ -1,3 +1,10 @@
+*Drivers/
+*Debug/
+*Startup/
+
+*.mxproject
+*.ld
+
 ### Eclipse ###
 .metadata
 bin/
