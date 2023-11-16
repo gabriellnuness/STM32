@@ -93,7 +93,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  if(wait_ms>300){
+	  if(wait_ms>200){
 		  wait_ms=30;
 	  }
 
