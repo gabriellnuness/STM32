@@ -14,5 +14,6 @@ PB6 -- SCL
 
 PB7 -- SDA
 
+PA1 -- ADC
 
 ## Class 3
