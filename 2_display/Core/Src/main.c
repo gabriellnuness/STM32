@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
+#include "lcd_i2c.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,6 +32,15 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+/**
+ * Define LCD row addresses
+ * 1 -> 3, 2 -> 4
+ */
+#define line_1 (0x80 | 0x00)
+#define line_2 (0x80 | 0x40)
+#define line_3 (0x80 | 0x14)
+#define line_4 (0x80 | 0x54)
 
 /* USER CODE END PD */
 
@@ -93,13 +103,29 @@ int main(void)
   MX_ADC1_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-
+  lcd_init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    lcd_send_cmd(line_1);
+    lcd_send_string("line 1 string");
+    
+    lcd_send_cmd(line_2);
+    lcd_send_string("line 2 string");
+    
+    lcd_send_cmd(line_3);
+    lcd_send_string("line 3 string");
+    
+    lcd_send_cmd(line_4);
+    lcd_send_string("line 4 string");
+
+    HAL_Delay(1000);
+    lcd_clear();
+
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
