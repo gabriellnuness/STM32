@@ -74,7 +74,10 @@ void lcd_init (void)
 	  HAL_Delay(1);
 
 }
-
+/**
+ TODO: Handle the case when the string has more than 20 characters
+ It can make "01234567890123456789oi" to "01234567890123456..."
+*/ 
 void lcd_send_string(char *str)
 {
 	while(*str) lcd_send_dado(*str++);
