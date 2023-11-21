@@ -56,9 +56,10 @@ ADC_HandleTypeDef hadc1;
 I2C_HandleTypeDef hi2c1;
 
 /* USER CODE BEGIN PV */
-int delay = 150;
-int count = 0;
-char str[10];
+int timeout = 50;
+int adc_value;
+int delay = 200;
+char str[16];
 /* USER CODE END PV */\
 
 /* Private function prototypes -----------------------------------------------*/
@@ -113,27 +114,16 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    if(count >= 1000){
-      count=0;
-    }
+    
+    // read ADC value with Polling
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, timeout);
+    adc_value = HAL_ADC_GetValue(&hadc1);
+    HAL_ADC_Stop(&hadc1);
 
-    sprintf(str, "%d", count++);
+    // write ADC count on display
+    sprintf(str, "ADC count: %d", adc_value);
     lcd_send_cmd(line_1);
-    lcd_send_string(str);
-    HAL_Delay(delay);
-
-    sprintf(str, "%d", count++);
-    lcd_send_cmd(line_2);
-    lcd_send_string(str);
-    HAL_Delay(delay);
-    
-    sprintf(str, "%d", count++);
-    lcd_send_cmd(line_3);
-    lcd_send_string(str);
-    HAL_Delay(delay);
-    
-    sprintf(str, "%d", count++);
-    lcd_send_cmd(line_4);
     lcd_send_string(str);
     HAL_Delay(delay);
 
