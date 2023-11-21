@@ -16,17 +16,26 @@ PB6 -- SCL
 
 PB7 -- SDA
 
+#### sprintf float value
+
+Project Properties -> C/C++ Build -> Settings -> MCU Settings -> Use float with printf from newlib-nano (-u_printf_float).
 
 ### ADC config
 
 PA1 -- ADC
 
-Continuous conversion mode enabled
+#### Polling
 
-#### sprintf float value
+Continuous conversion mode enabled.
 
-Project Properties -> C/C++ Build -> Settings -> MCU Settings -> Use float with printf from newlib-nano (-u_printf_float)
+#### Interrupt
 
+Activate global interrupt of ADC on NVIC Settings and fix the clock issues.
+
+Initialize the ADC working with the interruption after the peripherals are initialized.
+
+Create a function Handler with the name HAL_ADC_ConvCpltCallback() inside USER CODE 4, then every time the 
+ADC has a new value this function is executed.
 
 
 ## Class 3

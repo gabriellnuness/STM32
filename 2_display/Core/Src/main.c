@@ -59,9 +59,9 @@ I2C_HandleTypeDef hi2c1;
 /* USER CODE BEGIN PV */
 int timeout = 50;
 int adc_value;
-int delay = 200;
-char str[16];
-/* USER CODE END PV */\
+int delay = 1000;
+char str[32];
+/* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
@@ -108,6 +108,7 @@ int main(void)
   MX_ADC1_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+  HAL_ADC_Start_IT(&hadc1); // Initialize the ADC working with interruption
   lcd_init();
   /* USER CODE END 2 */
 
@@ -116,12 +117,8 @@ int main(void)
   while (1)
   {
     
-    // read ADC value with Polling
-    HAL_ADC_Start(&hadc1);
-    HAL_ADC_PollForConversion(&hadc1, timeout);
-    adc_value = HAL_ADC_GetValue(&hadc1);
-    HAL_ADC_Stop(&hadc1);
-
+    // read ADC value with Interrupt and load on adc_value variable
+ 
     // write ADC count on display
     sprintf(str, "ADC count: %d", adc_value);
     lcd_send_cmd(line_1);
@@ -132,6 +129,9 @@ int main(void)
     lcd_send_cmd(line_4);
     lcd_send_string(str);
     
+    // The ADC must be initialized every time after a conversion
+    HAL_ADC_Start_IT(&hadc1);
+
     HAL_Delay(delay);
     lcd_clear();
 
@@ -160,13 +160,12 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 8;
-  RCC_OscInitStruct.PLL.PLLN = 100;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 12;
+  RCC_OscInitStruct.PLL.PLLN = 96;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -213,7 +212,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.ScanConvMode = DISABLE;
-  hadc1.Init.ContinuousConvMode = ENABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
@@ -295,6 +294,12 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef * hadc){
+
+  adc_value = HAL_ADC_GetValue(&hadc1);
+
+}
+
 
 /* USER CODE END 4 */
 
