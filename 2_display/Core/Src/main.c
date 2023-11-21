@@ -109,7 +109,6 @@ int main(void)
   MX_ADC1_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  HAL_ADC_Start_IT(&hadc1); // Initialize the ADC working with interruption
   lcd_init();
   /* USER CODE END 2 */
 
@@ -120,11 +119,13 @@ int main(void)
     
     // read ADC value with Interrupt and load on adc_value variable
     if(button_flag == 1){
+
+      lcd_clear();
       // write ADC count on display
       sprintf(str, "ADC count: %d", adc_value);
       lcd_send_cmd(line_1);
       lcd_send_string(str);
-      
+
       // write ADC value in Volts
       sprintf(str, "ADC volts: %.4f", count2volt(12, adc_value));
       lcd_send_cmd(line_4);
