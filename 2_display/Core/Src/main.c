@@ -59,6 +59,7 @@ I2C_HandleTypeDef hi2c1;
 /* USER CODE BEGIN PV */
 int timeout = 50;
 int adc_value;
+int adc1_flag = 0;
 int delay = 1000;
 char str[32];
 /* USER CODE END PV */
@@ -118,19 +119,21 @@ int main(void)
   {
     
     // read ADC value with Interrupt and load on adc_value variable
- 
-    // write ADC count on display
-    sprintf(str, "ADC count: %d", adc_value);
-    lcd_send_cmd(line_1);
-    lcd_send_string(str);
-    
-    // write ADC value in Volts
-    sprintf(str, "ADC volts: %.6f", count2volt(12, adc_value));
-    lcd_send_cmd(line_4);
-    lcd_send_string(str);
-    
-    // The ADC must be initialized every time after a conversion
-    HAL_ADC_Start_IT(&hadc1);
+    if(adc1_flag == 1){
+      // write ADC count on display
+      sprintf(str, "ADC count: %d", adc_value);
+      lcd_send_cmd(line_1);
+      lcd_send_string(str);
+      
+      // write ADC value in Volts
+      sprintf(str, "ADC volts: %.6f", count2volt(12, adc_value));
+      lcd_send_cmd(line_4);
+      lcd_send_string(str);
+      
+      // The ADC must be initialized every time after a conversion
+      adc1_flag = 0;
+      HAL_ADC_Start_IT(&hadc1);
+    }
 
     HAL_Delay(delay);
     lcd_clear();
@@ -296,7 +299,11 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef * hadc){
 
-  adc_value = HAL_ADC_GetValue(&hadc1);
+  // Check if the handle is for ADC1
+  if(hadc == &hadc1){
+    adc1_flag = 1;
+    adc_value = HAL_ADC_GetValue(&hadc1);
+  }
 
 }
 
