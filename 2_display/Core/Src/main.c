@@ -21,9 +21,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "lcd_i2c.h"
+#include "count2volt.h"
 #include <string.h>
 #include <stdio.h>
-#include "lcd_i2c.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -125,8 +126,13 @@ int main(void)
     sprintf(str, "ADC count: %d", adc_value);
     lcd_send_cmd(line_1);
     lcd_send_string(str);
+    
+    // write ADC value in Volts
+    sprintf(str, "ADC volts: %.6f", count2volt(12, adc_value));
+    lcd_send_cmd(line_4);
+    lcd_send_string(str);
+    
     HAL_Delay(delay);
-
     lcd_clear();
 
 
