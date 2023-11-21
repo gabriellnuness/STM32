@@ -59,7 +59,7 @@ I2C_HandleTypeDef hi2c1;
 /* USER CODE BEGIN PV */
 int timeout = 50;
 int adc_value;
-int adc1_flag = 0;
+int button_flag = 0;
 int delay = 5000;
 char str[32];
 /* USER CODE END PV */
@@ -119,7 +119,7 @@ int main(void)
   {
     
     // read ADC value with Interrupt and load on adc_value variable
-    if(adc1_flag == 1){
+    if(button_flag == 1){
       // write ADC count on display
       sprintf(str, "ADC count: %d", adc_value);
       lcd_send_cmd(line_1);
@@ -129,14 +129,10 @@ int main(void)
       sprintf(str, "ADC volts: %.4f", count2volt(12, adc_value));
       lcd_send_cmd(line_4);
       lcd_send_string(str);
-      
-      // The ADC must be initialized every time after a conversion
-      adc1_flag = 0;
-      HAL_ADC_Start_IT(&hadc1);
+
+      button_flag = 0;
     }
 
-    HAL_Delay(delay);
-    lcd_clear();
 
     /* USER CODE END WHILE */
 
@@ -323,23 +319,18 @@ static void MX_GPIO_Init(void)
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 
   if(GPIO_Pin == GPIO_PIN_0){
+    button_flag = 1;
+
     HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-  }
 
-}
-
-/* Function for ADC interruption */
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef * hadc){
-
-  // Check if the handle is for ADC1
-  if(hadc == &hadc1){
-    adc1_flag = 1;
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, timeout);
     adc_value = HAL_ADC_GetValue(&hadc1);
-    HAL_ADC_Stop_IT(&hadc1);
-    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+    HAL_ADC_Stop(&hadc1);
   }
 
 }
+
 
 
 /* USER CODE END 4 */
