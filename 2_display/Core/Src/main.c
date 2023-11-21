@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <string.h>
+#include <stdio.h>
 #include "lcd_i2c.h"
 /* USER CODE END Includes */
 
@@ -55,8 +56,10 @@ ADC_HandleTypeDef hadc1;
 I2C_HandleTypeDef hi2c1;
 
 /* USER CODE BEGIN PV */
-
-/* USER CODE END PV */
+int delay = 150;
+int count = 0;
+char str[10];
+/* USER CODE END PV */\
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
@@ -110,19 +113,30 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    lcd_send_cmd(line_1);
-    lcd_send_string("line 1 string");
-    
-    lcd_send_cmd(line_2);
-    lcd_send_string("line 2 string");
-    
-    lcd_send_cmd(line_3);
-    lcd_send_string("line 3 string");
-    
-    lcd_send_cmd(line_4);
-    lcd_send_string("line 4 string");
+    if(count >= 1000){
+      count=0;
+    }
 
-    HAL_Delay(1000);
+    sprintf(str, "%d", count++);
+    lcd_send_cmd(line_1);
+    lcd_send_string(str);
+    HAL_Delay(delay);
+
+    sprintf(str, "%d", count++);
+    lcd_send_cmd(line_2);
+    lcd_send_string(str);
+    HAL_Delay(delay);
+    
+    sprintf(str, "%d", count++);
+    lcd_send_cmd(line_3);
+    lcd_send_string(str);
+    HAL_Delay(delay);
+    
+    sprintf(str, "%d", count++);
+    lcd_send_cmd(line_4);
+    lcd_send_string(str);
+    HAL_Delay(delay);
+
     lcd_clear();
 
 
