@@ -60,7 +60,7 @@ I2C_HandleTypeDef hi2c1;
 int timeout = 50;
 int adc_value;
 int adc1_flag = 0;
-int delay = 1000;
+int delay = 5000;
 char str[32];
 /* USER CODE END PV */
 
@@ -126,7 +126,7 @@ int main(void)
       lcd_send_string(str);
       
       // write ADC value in Volts
-      sprintf(str, "ADC volts: %.6f", count2volt(12, adc_value));
+      sprintf(str, "ADC volts: %.4f", count2volt(12, adc_value));
       lcd_send_cmd(line_4);
       lcd_send_string(str);
       
@@ -137,7 +137,6 @@ int main(void)
 
     HAL_Delay(delay);
     lcd_clear();
-
 
     /* USER CODE END WHILE */
 
@@ -284,25 +283,60 @@ static void MX_I2C1_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PC13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+
+/* Function for button interruption */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+
+  if(GPIO_Pin == GPIO_PIN_0){
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+  }
+
+}
+
+/* Function for ADC interruption */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef * hadc){
 
   // Check if the handle is for ADC1
   if(hadc == &hadc1){
     adc1_flag = 1;
     adc_value = HAL_ADC_GetValue(&hadc1);
+    HAL_ADC_Stop_IT(&hadc1);
+    HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
   }
 
 }
