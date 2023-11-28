@@ -46,6 +46,16 @@ I2C_HandleTypeDef hi2c2;
 
 /* USER CODE BEGIN PV */
 
+/* Blackpill AD variables */
+uint16_t adc_value;
+uint8_t adc_flag = 0;
+
+/* DA 12 bit i2c variables */
+uint16_t dac_value_on = 4095;
+uint16_t dac_value_off = 0;
+char buf[2];
+uint8_t time_on = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -54,6 +64,12 @@ static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_I2C2_Init(void);
 /* USER CODE BEGIN PFP */
+/** function to write value in i2c dac */
+void write_dac(char buf[2], int dac_value){
+  buf[0] = (uint8_t)(dac_value>>8);
+  buf[1] = (uint8_t)(dac_value);
+  HAL_I2C_Master_Transmit(&hi2c2, (0x60)<<1, buf, 2, 50);
+}
 
 /* USER CODE END PFP */
 
@@ -94,14 +110,33 @@ int main(void)
   MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
 
+  // Initializing blackpill adc
+  HAL_ADC_Start_IT(&hadc1);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-    HAL_Delay(500);
+  while (1){
+
+    // Treating AD input
+    if(adc_flag == 1){
+      adc_flag = 0; 
+      HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+
+      // 10% time on with adc is zero and 90% time on when is 4095
+      time_on = 80*adc_value/4095 + 10;
+
+      // value to DA
+      write_dac(buf, dac_value_on);
+      HAL_Delay(time_on);
+
+      write_dac(buf, dac_value_off);
+      HAL_Delay(100 - time_on);
+
+      HAL_ADC_Start_IT(&hadc1);
+    }
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -178,7 +213,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.ScanConvMode = DISABLE;
-  hadc1.Init.ContinuousConvMode = ENABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
@@ -284,7 +319,11 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-
+  if(hadc == &hadc1){
+    adc_flag = 1;
+    adc_value = HAL_ADC_GetValue(&hadc1);
+    HAL_ADC_Stop_IT(&hadc1);
+  }
 }
 
 /* USER CODE END 4 */
