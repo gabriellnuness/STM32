@@ -51,9 +51,16 @@ I2C_HandleTypeDef hi2c1;
 I2C_HandleTypeDef hi2c2;
 
 /* USER CODE BEGIN PV */
-uint32_t adc_valor,resto,A,B,V;
-char valor_string[6],V_string[6];
-uint8_t buf[2];
+uint32_t resto;
+uint32_t A;
+uint32_t B;
+uint32_t V;
+uint32_t adc_valor;
+uint32_t dac_valor;
+char valor_string[6];
+char dac_string[6];
+char V_string[6];
+char buf[2];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -109,40 +116,46 @@ HAL_StatusTypeDef RET;
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {     buf[0]=(uint8_t)(adc_valor>>8);
-        buf[1]=(uint8_t)adc_valor;
-	    RET=HAL_I2C_Master_Transmit(&hi2c2,(0x60)<<1,buf,2,50);
-	    if(RET==HAL_OK)
-	       	HAL_GPIO_WritePin(GPIOC, LED_Pin, 0);
-	    else
-	    	HAL_GPIO_WritePin(GPIOC, LED_Pin,1);
+  while (1){
 
-		lcd_send_cmd(Linha_1);
-		lcd_send_string("Valor da Tensao");
-		lcd_send_cmd(Linha_2);
-	    lcd_send_string(" =");
-	    lcd_send_cmd(Linha_2+3);
+	dac_valor = adc_valor/2;
+	buf[0] = (uint8_t)(dac_valor>>8);
+	buf[1] = (uint8_t)(dac_valor);
+
+	RET = HAL_I2C_Master_Transmit(&hi2c2, (0x60)<<1, buf, 2, 50);
+
+	if(RET == HAL_OK){
+		HAL_GPIO_WritePin(GPIOC, LED_Pin, 0);
+	}
+	else{
+		HAL_GPIO_WritePin(GPIOC, LED_Pin,1);
+	}
+
+	lcd_send_cmd(Linha_1);
+	lcd_send_string("Valor da Tensao");
+	lcd_send_cmd(Linha_2);
+	lcd_send_string(" =");
+	lcd_send_cmd(Linha_2+3);
 
 
-	    A=3.3*adc_valor;
-	    B=4095;
+	A = 3.3*adc_valor;
+	B = 4095;
 
-	    sprintf(valor_string,"%d",A/B);
-	    strcat(valor_string,",");
-	    resto=A%B;
-	    for(int k=1;k<=4;k++)
-	    {
-	    	A=10*resto;
-	    	resto=A%B;
-	    	V=A/B;
-	    	sprintf(V_string,"%d",V);
-	    	strcat(valor_string,V_string);
-	    }
-	    strcat(valor_string," [V]");
-	    lcd_send_string(valor_string);
-	    HAL_Delay(500);
-	    HAL_ADC_Start_IT(&hadc1);
+	sprintf(valor_string, "%d", A/B);
+	strcat(valor_string, ",");
+	resto = A % B;
+	for(int k=1; k<=4; k++)
+	{
+		A = 10*resto;
+		resto = A % B;
+		V = A/B;
+		sprintf(V_string, "%d", V);
+		strcat(valor_string, V_string);
+	}
+	strcat(valor_string," [V]");
+	lcd_send_string(valor_string);
+	HAL_Delay(500);
+	HAL_ADC_Start_IT(&hadc1);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -355,7 +368,7 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc1)
 {
-	adc_valor=HAL_ADC_GetValue(hadc1);
+	adc_valor = HAL_ADC_GetValue(hadc1);
 	HAL_ADC_Stop_IT(hadc1);
 }
 
