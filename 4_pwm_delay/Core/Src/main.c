@@ -51,6 +51,7 @@ uint16_t adc_value;
 uint8_t adc_flag = 0;
 
 /* DA 12 bit i2c variables */
+uint8_t dac_value_flag = 1;
 uint16_t dac_value_on = 4095;
 uint16_t dac_value_off = 0;
 char buf[2];
@@ -317,6 +318,8 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/* Function to save adc value to variable*/
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
   if(hadc == &hadc1){
@@ -324,6 +327,21 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
     adc_value = HAL_ADC_GetValue(&hadc1);
     HAL_ADC_Stop_IT(&hadc1);
   }
+}
+
+/* Function for button interruption */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+
+  if(GPIO_Pin == BUTTON_Pin){
+    if(dac_value_flag == 1){
+      dac_value_on = 2047;
+      dac_value_flag = 0;
+    }else{
+      dac_value_on = 4095;
+      dac_value_flag = 1;
+    }
+  }
+
 }
 
 /* USER CODE END 4 */
