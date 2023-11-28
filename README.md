@@ -39,3 +39,6 @@ ADC has a new value this function is executed.
 
 
 ## Class 3
+
+Using Digital to Analog converter with 12 bit via i2c.
+
