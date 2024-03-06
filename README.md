@@ -37,6 +37,8 @@ Initialize the ADC working with the interruption after the peripherals are initi
 Create a function Handler with the name HAL_ADC_ConvCpltCallback() inside USER CODE 4, then every time the 
 ADC has a new value this function is executed.
 
+To use the ADC in continuous mode change the flag `hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV` to `DISABLE`.
+
 
 ## Class 3
 
