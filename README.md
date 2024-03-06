@@ -1,5 +1,15 @@
 # STM32 Blackpill Board Projects
 
+
+### Basic setup routine
+
+System core:   RCC -> HSE -> Crystal
+
+Clock configuration: sysclk = 100 MHz 
+
+System core: Sys -> Debug -> Serial Wire, Timebase -> systick
+
+
 ## Class 1
 
 Blinking LED project with onboard LED on pin PC13.
