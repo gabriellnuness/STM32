@@ -56,25 +56,16 @@ UART_HandleTypeDef huart1;
  * @brief 
  * 
  */
-uint8_t msgstr[64];         // String where to store the serial port output
-uint8_t data[2];         // Buffer for reading the register content 
-uint16_t data_long;      // Variable used to store the whole register content 
-float temperature = 0;   // Float variable used for storing the temperature value 
-float temperature_dec;   // Float variable used for calculation of the decimal part 
-
-/**
- * @todo needs to be fixed 
- */
+uint8_t msgstr[64];       // String where to store the serial port output
+uint8_t data[2];          // Buffer for reading the register content 
+uint16_t data_long;       // Variable used to store the whole register content 
+float temperature = 0;    // Float variable used for storing the temperature value 
+float temperature_dec;    // Float variable used for calculation of the decimal part 
 uint8_t addr_temp = 0x05; // temperature data addr must be in this format to work correctly
 
-// char msgstr[64];              /* String where to store the serial port output */
-// uint16_t devAddress = 0x30;   /* Temperature sensor I2C address */
-// uint8_t tempReg = 0x05u;      /* Temperature register address */
-// uint8_t dataReg[2];           /* Buffer for reading the register content */
-// uint16_t dataRegLong;         /* Variable used to store the whole register content */
-// float tempVal = 0;            /* Float variable used for storing the temperature value */
-// float tempValDec;             /* Float variable used for calculation of the decimal part */
 
+// adc variables
+uint16_t adc_value[4]; // 4 conversions
 
 
 /* USER CODE END PV */
@@ -91,6 +82,43 @@ static void MX_USART1_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+void select_adc_channel_1(void){
+	ADC_ChannelConfTypeDef sConfig = {0};
+	sConfig.Channel = ADC_CHANNEL_1;
+	sConfig.Rank = 1;
+	if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK){
+		Error_Handler();
+	}
+}
+
+void select_adc_channel_2(void){
+	ADC_ChannelConfTypeDef sConfig = {0};
+	sConfig.Channel = ADC_CHANNEL_2;
+	sConfig.Rank = 2;
+	if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK){
+		Error_Handler();
+	}
+}
+
+void select_adc_channel_3(void){
+	ADC_ChannelConfTypeDef sConfig = {0};
+	sConfig.Channel = ADC_CHANNEL_3;
+	sConfig.Rank = 3;
+	if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK){
+		Error_Handler();
+	}
+}
+
+void select_adc_channel_4(void){
+	ADC_ChannelConfTypeDef sConfig = {0};
+	sConfig.Channel = ADC_CHANNEL_4;
+	sConfig.Rank = 4;
+	if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK){
+		Error_Handler();
+	}
+}
+
 
 /* USER CODE END 0 */
 
@@ -159,7 +187,8 @@ int main(void)
 	  // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 0); // ON
 	  // HAL_Delay(100);
 	  // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1); // OFF
-    // HAL_Delay(400);
+	  // HAL_Delay(400);
+	  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 
 
 
@@ -180,14 +209,45 @@ int main(void)
     }
 
 
+    /**
+     * @brief Reading transimpedance signals
+     */
+
+    select_adc_channel_1();
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, 2000);
+    adc_value[0] = HAL_ADC_GetValue(&hadc1);
+    HAL_ADC_Stop(&hadc1);
+
+    select_adc_channel_2();
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, 2000);
+    adc_value[1] = HAL_ADC_GetValue(&hadc1);
+    HAL_ADC_Stop(&hadc1);
+
+    select_adc_channel_3();
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, 2000);
+    adc_value[2] = HAL_ADC_GetValue(&hadc1);
+    HAL_ADC_Stop(&hadc1);
+
+    select_adc_channel_4();
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, 2000);
+    adc_value[3] = HAL_ADC_GetValue(&hadc1);
+    HAL_ADC_Stop(&hadc1);
+
+
+
+
 
 
     /**
-     * @brief Transmit via UART1
+     * @brief Transmit via UART
      */
-	  sprintf(msgstr, "Temperature is %f °C\r\n", temperature);
-	  HAL_UART_Transmit(&huart1, msgstr, strlen(msgstr), HAL_MAX_DELAY);
-	  HAL_Delay(1000);  /* Wait one second */
+	  sprintf(msgstr, "temp: %f\r\n", temperature);
+	  HAL_UART_Transmit(&huart1, msgstr, strlen(msgstr), 20);
+	  HAL_Delay(500);  /* Wait one second */
 
 
     /* USER CODE END WHILE */
@@ -272,7 +332,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.NbrOfConversion = 4;
+  hadc1.Init.NbrOfConversion = 1;
   hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -292,6 +352,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
+  sConfig.Channel = ADC_CHANNEL_2;
   sConfig.Rank = 2;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -300,6 +361,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
+  sConfig.Channel = ADC_CHANNEL_3;
   sConfig.Rank = 3;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
@@ -308,6 +370,7 @@ static void MX_ADC1_Init(void)
 
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
+  sConfig.Channel = ADC_CHANNEL_4;
   sConfig.Rank = 4;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
