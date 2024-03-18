@@ -1,4 +1,7 @@
 #include "mcp9808.h"
+#include "main.h"
+
+extern I2C_HandleTypeDef hi2c1;
 
 
 float read_temperature(unsigned char slave_addr){
@@ -12,8 +15,7 @@ float read_temperature(unsigned char slave_addr){
     unsigned char sign = 0;
 
 
-    I2CReceiveN(slave_addr, TEMP_REG_ADDR, data, 2);
-
+    HAL_I2C_Master_Receive(&hi2c1, slave_addr, 2, 10, 50); 	//I2CReceiveN(slave_addr, TEMP_REG_ADDR, data, 2);
 
 //    alarms = data[1] & 0xE0;
 
