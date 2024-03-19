@@ -2,7 +2,7 @@
 *Debug/
 *Startup/
 
-*.mxproject
+#*.mxproject
 *.ld
 
 ### Eclipse ###
@@ -28,7 +28,7 @@ local.properties
 *.pydevproject
 
 # CDT-specific (C/C++ Development Tooling)
-.cproject
+#.cproject
 
 # CDT- autotools
 .autotools
@@ -63,7 +63,7 @@ local.properties
 .scala_dependencies
 .worksheet
 
-.project
+#.project
 
 ### Eclipse Patch ###
 # Spring Boot Tooling
