@@ -44,8 +44,13 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+DMA_HandleTypeDef hdma_adc1;
 
 I2C_HandleTypeDef hi2c1;
+
+TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart1;
 
@@ -56,7 +61,7 @@ UART_HandleTypeDef huart1;
  * @brief 
  * 
  */
-uint8_t msgstr[64];       // String where to store the serial port output
+uint8_t uart_str[100];       // String where to store the serial port output
 uint8_t data[2];          // Buffer for reading the register content 
 uint16_t data_long;       // Variable used to store the whole register content 
 float temperature = 0;    // Float variable used for storing the temperature value 
@@ -66,6 +71,8 @@ uint8_t addr_temp = 0x05; // temperature data addr must be in this format to wor
 
 // adc variables
 uint16_t adc_value[4]; // 4 conversions
+int adc_channel_count = sizeof(adc_value)/sizeof(adc_value[0]);
+
 
 
 /* USER CODE END PV */
@@ -73,9 +80,13 @@ uint16_t adc_value[4]; // 4 conversions
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_TIM2_Init(void);
+static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -150,11 +161,19 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_ADC1_Init();
   MX_I2C1_Init();
   MX_USART1_UART_Init();
+  MX_TIM2_Init();
+  MX_TIM3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
+  HAL_ADC_Start_DMA(&hadc1, (uint16_t *)adc_value, adc_channel_count);
+  HAL_TIM_Base_Start(&htim2); 		// 100 Hz	- read adc
+  HAL_TIM_Base_Start_IT(&htim3); 	// 4 Hz   	- read temperature
+  HAL_TIM_Base_Start_IT(&htim4); 	// 10 Hz  	- transmit via uart
 
   /**
    * @brief Configuring the MCP9808
@@ -164,15 +183,13 @@ int main(void)
   HAL_I2C_Master_Transmit(&hi2c1, SENSOR_TEMP_ADDR1, &addr_temp, 1, 2000);
 
 
-    /** Blinking LED */
-    for(int i=1; i<6; i++){
-      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 0); // ON
-      HAL_Delay(100);
-      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1); // OFF
-      HAL_Delay(400);
-    }
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 0);
-
+	/** Blinking LED */
+	for(int i=1; i<6; i++){
+	  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 0); // ON
+	  HAL_Delay(100);
+	  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1); // OFF
+	  HAL_Delay(400);
+	}
 
   /* USER CODE END 2 */
 
@@ -180,76 +197,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
-    /**
-    * @brief Blinking LED
-    */
-	  // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 0); // ON
-	  // HAL_Delay(100);
-	  // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1); // OFF
-	  // HAL_Delay(400);
-	  HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-
-
-
-
-
-    /**
-     * @brief Reading temperature from mcp9808
-     */
-	  HAL_I2C_Master_Receive(&hi2c1, SENSOR_TEMP_ADDR1, data, 2, 2000u);
-
-    data_long = ((data[0] << 8u) | data[1]); /* Compose the register content, regardless of the endianess */
-    temperature = ((data_long & 0x0FFF) >> 4); /* Extract the integer part from the fixed point value */
-	  temperature_dec = 0.0625; /* Extract decimal part */
-    
-    for(int i=0; i < 4; i++){
-		  temperature += ((data_long >> i) & 0x0001) * temperature_dec;
-		  temperature_dec *= 2u;
-    }
-
-
-    /**
-     * @brief Reading transimpedance signals
-     */
-
-    select_adc_channel_1();
-    HAL_ADC_Start(&hadc1);
-    HAL_ADC_PollForConversion(&hadc1, 2000);
-    adc_value[0] = HAL_ADC_GetValue(&hadc1);
-    HAL_ADC_Stop(&hadc1);
-
-    select_adc_channel_2();
-    HAL_ADC_Start(&hadc1);
-    HAL_ADC_PollForConversion(&hadc1, 2000);
-    adc_value[1] = HAL_ADC_GetValue(&hadc1);
-    HAL_ADC_Stop(&hadc1);
-
-    select_adc_channel_3();
-    HAL_ADC_Start(&hadc1);
-    HAL_ADC_PollForConversion(&hadc1, 2000);
-    adc_value[2] = HAL_ADC_GetValue(&hadc1);
-    HAL_ADC_Stop(&hadc1);
-
-    select_adc_channel_4();
-    HAL_ADC_Start(&hadc1);
-    HAL_ADC_PollForConversion(&hadc1, 2000);
-    adc_value[3] = HAL_ADC_GetValue(&hadc1);
-    HAL_ADC_Stop(&hadc1);
-
-
-
-
-
-
-    /**
-     * @brief Transmit via UART
-     */
-	  sprintf(msgstr, "temp: %.4f, adc1: %d, adc2: %d, adc3: %d, adc4: %d, \r\n",
-			  temperature, adc_value[0], adc_value[1], adc_value[2], adc_value[3]);
-	  HAL_UART_Transmit(&huart1, msgstr, strlen(msgstr), 20);
-	  HAL_Delay(500);  /* Wait one second */
-
 
     /* USER CODE END WHILE */
 
@@ -294,8 +241,8 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
   {
@@ -324,13 +271,13 @@ static void MX_ADC1_Init(void)
   /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
   */
   hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.ScanConvMode = ENABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T2_TRGO;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.NbrOfConversion = 4;
   hadc1.Init.DMAContinuousRequests = DISABLE;
@@ -417,6 +364,141 @@ static void MX_I2C1_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 50000 - 1;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 10 - 1;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 50000 - 1;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 250 - 1;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 50000 - 1;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 100 - 1;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+
+}
+
+/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -450,6 +532,22 @@ static void MX_USART1_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA2_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -469,6 +567,9 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(DEBUG_ADC_OUT_GPIO_Port, DEBUG_ADC_OUT_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pin : PC13 */
   GPIO_InitStruct.Pin = GPIO_PIN_13;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -476,11 +577,62 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : DEBUG_ADC_OUT_Pin */
+  GPIO_InitStruct.Pin = DEBUG_ADC_OUT_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(DEBUG_ADC_OUT_GPIO_Port, &GPIO_InitStruct);
+
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+
+
+//void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+//{
+//
+//}
+
+/**
+ * Use callback function to sent data through uart at a fixed rate of 10 Hz
+ */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+
+	if(htim == &htim3){
+		/**
+		 * Reading temperature from mcp9808
+		 */
+		HAL_I2C_Master_Receive(&hi2c1, SENSOR_TEMP_ADDR1, data, 2, 2000u);
+
+		data_long = ((data[0] << 8u) | data[1]); /* Compose the register content, regardless of the endianess */
+		temperature = ((data_long & 0x0FFF) >> 4); /* Extract the integer part from the fixed point value */
+		temperature_dec = 0.0625; /* Extract decimal part */
+
+		for(int i=0; i < 4; i++){
+			  temperature += ((data_long >> i) & 0x0001) * temperature_dec;
+			  temperature_dec *= 2u;
+		}
+	}
+
+	if(htim == &htim4){
+		/**
+		 * Sending via UART
+		 */
+		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+
+		sprintf(uart_str, "temp: %.4f, adc1: %d, adc2: %d, adc3: %d, adc4: %d\r\n",
+				  temperature, adc_value[0], adc_value[1], adc_value[2], adc_value[3]);
+		HAL_UART_Transmit(&huart1, uart_str, strlen(uart_str), 20);
+	}
+
+}
+
+
+
 
 /* USER CODE END 4 */
 
