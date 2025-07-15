@@ -1,407 +1,390 @@
-/* --COPYRIGHT--,BSD
- * Copyright (c) 2017, Texas Instruments Incorporated
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * *  Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * *  Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * *  Neither the name of Texas Instruments Incorporated nor the names of
- *    its contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
- * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- * --/COPYRIGHT--*/
+/* Includes ------------------------------------------------------------------*/
+#include "main.h"
+#include "stm32f1xx_hal.h"
+#include "dma.h"
+#include "spi.h"
+#include "usart.h"
+#include "usb.h"
+#include "gpio.h" 
+#include "core_cm3.h"
+#include "ads1256.h"
 
-#include "ADS1255_7.h"
+#define SPI2_HANDLE_TIMEOUT  10
 
-// Global Variables
-uint8_t RegData_LR[NUM_REGISTERS];		// Stores "Last Read" register data
-uint8_t RegData_LW[NUM_REGISTERS];		// Stores "Last Write" register data
-bool RDATACmode = false;
+/* Private variables ---------------------------------------------------------*/
 
-extern void DRDY_int(void);
+//#define ADS125X_VREF_VOLTAGE      1.486//uint:V
+#define ADS125X_VREF_VOLTAGE      2.412 //uint:V
+
+ads125x_conf_t ads125x_conf={
+    .gain = PGA_1,
+    .sampling_rate = DATARATE_30K, 
+    .input_mode = ADC1256_INPUT_MODE,
+    .report_interval_ms = 5, //uint:ms
+    
+    /*single-ended input channel:1=enable, 0=disable*/
+    .single_input_channel.ADS1256_SINGLE_CH0 = 1,
+    .single_input_channel.ADS1256_SINGLE_CH1 = 1,
+    .single_input_channel.ADS1256_SINGLE_CH2 = 1,
+    .single_input_channel.ADS1256_SINGLE_CH3 = 1,
+    .single_input_channel.ADS1256_SINGLE_CH4 = 0,
+    .single_input_channel.ADS1256_SINGLE_CH5 = 0,
+    .single_input_channel.ADS1256_SINGLE_CH6 = 0,
+    .single_input_channel.ADS1256_SINGLE_CH7 = 0,
+    
+    /*differential input channel:1=enable, 0=disable*/
+    .diff_input_channel.ADS1256_DIFF_CH0 = 0, /*AINp=AIN0, AINn=AIN1*/
+    .diff_input_channel.ADS1256_DIFF_CH1 = 0, /*AINp=AIN2, AINn=AIN3*/
+    .diff_input_channel.ADS1256_DIFF_CH2 = 0, /*AINp=AIN4, AINn=AIN5*/
+    .diff_input_channel.ADS1256_DIFF_CH3 = 0, /*AINp=AIN6, AINn=AIN7*/
+};
+
+ads125x_channel_info_t ads125x_channel_info; 
+
+extern TIM_HandleTypeDef htim4;
 
 
-/* Sets the state of the ADC's /CS pin:
-*		0 = LOW 	(active)
-*		1 = HIGH	(not selected)
-*
-*	Asserts:
-*		'state' must be '0' or '1'
+
+/* Private function prototypes -----------------------------------------------*/
+
+/*
+*********************************************************************************************************
+*	name:  
+*	function:  
+*	parameter:  
+*	The return value: NULL
+*********************************************************************************************************
+*/ 
+//#pragma optimize=none
+void ads1256_delay_us(uint32_t usec) 
+{   
+    //#define OSC     (72)                                 //����Ϊ72M  
+    //#define OSC_D   (OSC/7) 
+    //    uint32_t i;  
+    //    for(i=0; i<OSC_D*usec; i++){ 
+    //        ; 
+    //        } 
+    uint16_t cccnt,pcnt,dcnt;
+    pcnt=htim4.Instance->CNT;
+    do{
+        cccnt = htim4.Instance->CNT;
+        dcnt = (cccnt >= pcnt)?(cccnt - pcnt):(0xFFFF - pcnt + cccnt);
+    }while(dcnt<usec); 
+}
+
+/*
+*********************************************************************************************************
+*	name: Voltage_Convert
+*	function:  Voltage value conversion function
+*	parameter: Vref : The reference voltage 3.3V or 5V
+*			   voltage : output DAC value 
+*	The return value:  NULL
+*********************************************************************************************************
 */
-void set_adc_CS(uint8_t logicLevel)
-{
-	if (0 == logicLevel)
-	{
-		GPIO_setOutputLowOnPin(CS_PORT, CS_PIN);
-			__delay_cycles(TD_CSSC_DELAY);					//td(CSSC) delay
-	}
-	else if (1 == logicLevel)
-	{
-			__delay_cycles(TD_SCCS_DELAY);					//td(SCCS) delay
-		GPIO_setOutputHighOnPin(CS_PORT, CS_PIN);
-
-	}
-	else assert(0);										//Aborts program if invalid argument is used
+static int32_t ads1256_conv2uv(int32_t adc_result)
+{ 
+    /* Vin = ( (2*Vr) / G ) * ( x / (2^23 -1)) */   
+      
+    float voltage_uv = (float)adc_result *2.0 * ADS125X_VREF_VOLTAGE / 8388607.0 ;
+    voltage_uv /= (float)(ads125x_conf.gain+1);
+    voltage_uv *= 1000000;
+   
+    return (int32_t)voltage_uv;
 }
-
+/*
+*********************************************************************************************************
+*	name: ads1256_write_reg
+*	function: Write the corresponding register
+*	parameter: _RegID: register  ID
+*			 _RegValue: register Value
+*	The return value: NULL
+*********************************************************************************************************
+*/
+static void ads1256_write_reg(uint8_t reg_addr, uint8_t wdata)
+{
+    uint8_t wrbuf[3]; 
+    
+    wrbuf[0] = CMD_WREG | reg_addr;	/*Write command register */
+    wrbuf[1] = 0; /*Write the register number */
+    wrbuf[2] = wdata;
+    
+    while(  HAL_SPI_Transmit(&hspi2,wrbuf,sizeof(wrbuf),SPI2_HANDLE_TIMEOUT) != HAL_OK ); 	/*send register value */   
+} 
 
 /*
- * Initializes device for use in the ADS1257BRD.
- *
- * \param *device The shadow instance of the device to initialize
- * \param SPIBASE Address of the Tiva SSI module which will be used to
- * communicate with the device
- *
- * \return True if device is in correct hardware defaults and is connected
- *
- */
-uint8_t InitDevice(void)
+*********************************************************************************************************
+*	name: ads1256_write_reg
+*	function: Write the corresponding register
+*	parameter: _RegID: register  ID
+*			 _RegValue: register Value
+*	The return value: NULL
+*********************************************************************************************************
+*/
+static void ads1256_write_regs(uint8_t reg_addr, uint8_t *msg, uint8_t len)
 {
-
-	__delay_cycles(TD_STARTUP_DELAY);	// Startup delay
-
-	// TODO: Set GPIO pin logic levels (if different than initial settings configured in "hal.c")
-	// TODO: Check if DRDY is toggling - if not notify user that an external clock must be usred for ADC CLK
-
-	readRegs(0, NUM_REGISTERS);				// Read all registers (results are stored in "RegData_LR")
-
-	return 1;
-}
-
-
-
-// receive byte, simultaneously send data
-unsigned char adcXferByte(unsigned char cData)
-{
-		while(USCI_B_SPI_isBusy(USCI_B0_BASE));
-	USCI_B_SPI_transmitData(USCI_B0_BASE, cData);
-	while(USCI_B_SPI_isBusy(USCI_B0_BASE));
-	return USCI_B_SPI_receiveData(USCI_B0_BASE);
-}
-
-void reset_adc_hw(void)
-{
-	GPIO_setOutputLowOnPin(RST_PORT, RST_PIN);
-	__delay_cycles(TW_PDL_DELAY);						//tw(PDL) delay
-	GPIO_setOutputHighOnPin(RST_PORT, RST_PIN);
-}
-
-void reset_adc_sclk(void)
-{
-	set_adc_CS(0);
-	GPIO_setOutputLowOnPin(SPI_PORT, SCLK_PIN);
-    GPIO_setAsOutputPin(SPI_PORT, SCLK_PIN);
-    GPIO_setOutputHighOnPin(SPI_PORT, SCLK_PIN);
-    	__delay_cycles(T12_DELAY);						//tw(PDL) delay
-    GPIO_setOutputLowOnPin(SPI_PORT, SCLK_PIN);
-    	__delay_cycles(T13_DELAY);						//tw(PDL) delay
-	GPIO_setOutputHighOnPin(SPI_PORT, SCLK_PIN);
-		__delay_cycles(T14_DELAY);						//tw(PDL) delay
-	GPIO_setOutputLowOnPin(SPI_PORT, SCLK_PIN);
-		__delay_cycles(T13_DELAY);
-	GPIO_setOutputHighOnPin(SPI_PORT, SCLK_PIN);
-		__delay_cycles(T15_DELAY);
-	GPIO_setOutputLowOnPin(SPI_PORT, SCLK_PIN);
-    GPIO_setAsPeripheralModuleFunctionOutputPin(SPI_PORT, SCLK_PIN);
-    set_adc_CS(1);
-}
-
-void reset_adc_sw(void)
-{
-	set_adc_CS(0);
-	adcXferByte(RESET_OPCODE);
-	set_adc_CS(1);
-}
-
-////9.4.5 Power-Down Mode
-////Holding the SYNC/PDWN pin low for 20 DRDY cycles activates the Power-Down mode. During Power-Down
-////mode, all circuitry is disabled including the clock output.
-////To exit Power-Down mode, take the SYNC/PDWN pin high. Upon exiting from Power-Down mode 8192 t(CLKIN)
-////cycles are needed before conversions begin.
-//void pwdn_adc_hw(void)
-//{
-//	GPIO_setOutputLowOnPin(PWDN_PORT, PWDN_PIN);
-//	assert(0); 	// TODO: wait for 20 DRDY cycles
-//	GPIO_setOutputHighOnPin(RST_PORT, RST_PIN);
-//}
-
+    uint8_t wrbuf[2]; 
+    
+    wrbuf[0] = CMD_WREG | reg_addr;	/*Write command register */
+    wrbuf[1] = len-1; /*Write the register number */
+    
+    while( HAL_SPI_Transmit(&hspi2,wrbuf,sizeof(wrbuf),SPI2_HANDLE_TIMEOUT) != HAL_OK );  /*send register value */    
+    while( HAL_SPI_Transmit(&hspi2,msg,len,SPI2_HANDLE_TIMEOUT) != HAL_OK ); 	/*send register value */   
+} 
 
 /*
- * Reads a register contents from the specified address and places the result in memory address
- *
- * \param regnum identifies which address to read
- * \param *pdata identifies memory address to place read value
- *
- */
-void regRead(uint8_t regnum, uint8_t *p_data)
-{
-	uint8_t DataTx[3];
-
-	assert(regnum < NUM_REGISTERS);					//Asserts when "regnum" is out of range
-
-	DataTx[0] = RREG_OPCODE + (regnum & 0x0F);
-	DataTx[1] = 0;
-	DataTx[2] = 0x00;
-
-	set_adc_CS(0);
-
-
-	//WaitForDRDY();
-	if (RDATACmode == true)
-	{
-		adcXferByte(SDATAC_OPCODE);							// Enter SDATAC mode prior to reading or writing registers to prevent data corruption
-		__delay_cycles(TD_SCSC_DELAY_24CLK);
-	}
-
-	adcXferByte(DataTx[0]);
-	__delay_cycles(TD_SCSC_DELAY_4CLK);
-
-	adcXferByte(DataTx[1]);
-	__delay_cycles(TD_DIDO_DELAY_T6);
-	p_data[0] = adcXferByte(DataTx[2]);
-
-
-	set_adc_CS(1);
-
-	if(regnum < NUM_REGISTERS)
-		RegData_LR[regnum] = p_data[0];
-
-	return;
+*********************************************************************************************************
+*	name: ads1256_read_reg
+*	function: Read  the corresponding register
+*	parameter: _RegID: register  ID
+*	The return value: read register value
+*********************************************************************************************************
+*/
+static void ads1256_read_regs(uint8_t reg_addr, uint8_t *msg, uint8_t len)
+{ 
+    uint8_t wrbuf[2];
+    //HAL_GPIO_WritePin(CSN_GPIO_Port,CSN_Pin,GPIO_PIN_RESET);	/* SPI  cs  = 0 */
+    
+    wrbuf[0] = CMD_RREG | reg_addr;	/*Write command register */
+    wrbuf[1] = len-1; /*Write the register number */ 
+    while( HAL_SPI_Transmit(&hspi2,wrbuf,sizeof(wrbuf),SPI2_HANDLE_TIMEOUT) != HAL_OK ); /*send register value */  
+    
+    HAL_GPIO_WritePin(DBG_OUT_GPIO_Port, DBG_OUT_Pin, GPIO_PIN_SET);
+    ads1256_delay_us(10);	/*delay time */
+    HAL_GPIO_WritePin(DBG_OUT_GPIO_Port, DBG_OUT_Pin, GPIO_PIN_RESET);
+    
+    while( HAL_SPI_Receive(&hspi2, msg, len, SPI2_HANDLE_TIMEOUT) != HAL_OK );  /* Read the register values */  
 }
 
 /*
- * Reads a group of registers starting at the specified address
- *
- * \param regnum identifies SPIBASE Address of the Tiva SSI module which will be used to
- * communicate with the device
- * \param addr_mask 16-bit mask of the register from which we start reading
- * \param num The number of registers we wish to read
- * \param *location pointer to the location in memory to write the data
- *
- */
-void readRegs(uint8_t regnum, uint8_t count)
-{
-	assert( (regnum + count - 1) < NUM_REGISTERS);			// Asserts when false, i.e. "regnum + count - 1" is >= "NUM_REGISTERS"
-
-	uint8_t DataTx[2];
-
-	DataTx[0] = RREG_OPCODE + (regnum & 0x0F);
-	DataTx[1] = count - 1;
-
-	set_adc_CS(0);
-
-	if (RDATACmode == true)
-	{
-		adcXferByte(SDATAC_OPCODE);							// Enter SDATAC mode prior to reading or writing registers to prevent data corruption
-		__delay_cycles(TD_SCSC_DELAY_24CLK);
-	}
-
-	adcXferByte(DataTx[0]);
-	__delay_cycles(TD_SCSC_DELAY_4CLK);
-	adcXferByte(DataTx[1]);
-	__delay_cycles(TD_DIDO_DELAY_T6);
-
-	for(int i = 0; i < count; i++)
-		RegData_LR[regnum + i] = adcXferByte(NOP_OPCODE);	// Store register value in "RegData_LR" array
-
-	set_adc_CS(1);
-}
-
+*********************************************************************************************************
+*	name: ads1256_write_cmd
+*	function: Sending a single byte order
+*	parameter: _cmd : command
+*	The return value: NULL
+*********************************************************************************************************
+*/
+static void ads1256_write_cmd(uint8_t _cmd)
+{ 
+    while( HAL_SPI_Transmit(&hspi2,&_cmd,sizeof(_cmd),SPI2_HANDLE_TIMEOUT) != HAL_OK ) ;  /*send comand value */   
+} 
 
 /*
- * Writes a group of registers with the specified data
- *
- * \param SPIBASE Address of the Tiva SSI module which will be used to
- * communicate with the device
- * \param addr_mask 16-bit mask of the register to which we start writing
- * \param num The number of registers we wish to write
- * \param *data pointer to the location in memory from which data is written
- *
- */
-
-void regWrite(unsigned int regnum, unsigned char *pdata)
-{
-	unsigned long DataTx[3];
-
-	DataTx[0] = WREG_OPCODE | (regnum & 0x0F);
-	DataTx[1] = 0x00;
-	DataTx[2] = pdata[0];
-
-	set_adc_CS(0);
-
-	if (RDATACmode == true)
-	{
-		adcXferByte(SDATAC_OPCODE);							// Enter SDATAC mode prior to reading or writing registers to prevent data corruption
-		__delay_cycles(TD_SCSC_DELAY_24CLK);
-	}
-
-	adcXferByte(DataTx[0]);
-	__delay_cycles(TD_SCSC_DELAY_4CLK);					// TODO: Check if necessary
-	adcXferByte(DataTx[1]);
-	adcXferByte(DataTx[2]);
-
-	if(regnum < NUM_REGISTERS)
-		RegData_LW[regnum] = DataTx[2];
-
-	set_adc_CS(1);
-
-	return;
-}
-
-void  writeRegs(unsigned int regnum, unsigned int count, unsigned char *data)
-{
-	int i;
-	unsigned long DataTx[2];
-
-	DataTx[0] = WREG_OPCODE + (regnum & 0x0F);
-	DataTx[1] = count - 1;
-
-	set_adc_CS(0);
-
-	if (RDATACmode == true)
-	{
-		adcXferByte(SDATAC_OPCODE);							// Enter SDATAC mode prior to reading or writing registers to prevent data corruption
-		__delay_cycles(TD_SCSC_DELAY_24CLK);
-	}
-
-	adcXferByte(DataTx[0]);
-	__delay_cycles(TD_SCSC_DELAY_4CLK);					// TODO: Check if necessary
-	adcXferByte(DataTx[1]);
-
-	for(i = 0; i < count; i++)
-	{
-		adcXferByte((unsigned long)data[i]);
-		if(regnum + i < NUM_REGISTERS)
-			RegData_LW[regnum + i] = data[i];
-	}
-
-	set_adc_CS(1);
-
-	return;
+*********************************************************************************************************
+*	name: ads1256_set_single_channel
+*	function: Configuration channel number
+*	parameter:  _ch:  channel number  0--7
+*	The return value: NULL
+*********************************************************************************************************
+*/
+static void ads1256_set_single_channel(uint8_t _ch)
+{ 
+    ads1256_write_reg(REG_MUX, (_ch << 4) | (1 << 3));	/* Bit3 = 1, AINN connection AINCOM */
 }
 
 /*
- * Sends a command to the ADS1257
- *
- * \param SPIBASE Address of the Tiva SSI module which will be used to
- * communicate with the device
- * \param op_code is the command being issued
- */
-void sendCommand(uint8_t op_code)
+*********************************************************************************************************
+*	name: ads1256_set_diff_channel
+*	function: The configuration difference channel
+*	parameter:  _ch:  channel number  0--3
+*	The return value:  four high status register
+*********************************************************************************************************
+*/
+static void ads1256_set_diff_channel(uint8_t _ch)
+{ 
+    uint8_t channel = _ch * 2;
+    ads1256_write_reg(REG_MUX,(channel << 4) | (channel + 1) ); 
+}  
+
+/*
+*********************************************************************************************************
+*	name: ads1256_read_result
+*	function: read ADC value
+*	parameter: NULL
+*	The return value:  NULL
+*********************************************************************************************************
+*/
+static int32_t ads1256_read_result(void)
 {
-	switch(op_code)						// Wait for DRDY before sending opcode?
-	{
-		case RDATAC_OPCODE:
-			RDATACmode = true;
-		case SDATAC_OPCODE:
-			RDATACmode = false;
-		case RESET_OPCODE:
-		case STANDBY_OPCODE:
-		case SELFOCAL_OPCODE:
-		case SYSOCAL_OPCODE:
-		case SELFGCAL_OPCODE:
-		case SYSGCAL_OPCODE:
-		case SELFCAL_OPCODE:
-			WaitForDRDY();
-			break;
-
-		default:
-			break;
-	}
-
-	set_adc_CS(0);
-	adcXferByte(op_code);				// Send opcode
-	set_adc_CS(1);
+    int32_t read = 0;
+    uint8_t buf[3];
+    
+    ads1256_write_cmd(CMD_RDATA);	/* read ADC command  */
+    
+    ads1256_delay_us(10);	/*delay time  */
+     
+    /*Read the sample results 24bit*/ 
+    while( HAL_SPI_Receive(&hspi2, buf, sizeof(buf), SPI2_HANDLE_TIMEOUT) != HAL_OK ); 
+      
+    read = ((uint32_t)buf[0] << 16) & 0x00FF0000;
+    read |= ((uint32_t)buf[1] << 8);  /* Pay attention to It is wrong   read |= (buf[1] << 8) */
+    read |= buf[2];
+    
+    /* Extend a signed number*/
+    if (read & 0x800000) {
+        read |= 0xFF000000;
+    }
+    
+    return (int32_t)read;
+}  
 
 
-	switch(op_code)						// Insert opcode dependent delay after sending opcode?
-	{
-		case RREG_OPCODE:
-		case WREG_OPCODE:
-		case RDATA_OPCODE:
-			__delay_cycles(TD_SCSC_DELAY_4CLK);
-			break;
-
-		case RDATAC_OPCODE:
-		case SDATAC_OPCODE:
-		case SYNC_OPCODE:
-			__delay_cycles(TD_SCSC_DELAY_24CLK);
-			break;
-
-		case RESET_OPCODE:
-		case STANDBY_OPCODE:
-		case SELFOCAL_OPCODE:
-		case SYSOCAL_OPCODE:
-		case SELFGCAL_OPCODE:
-		case SYSGCAL_OPCODE:
-		case SELFCAL_OPCODE:
-			WaitForDRDY();
-			break;
-
-		default:
-			break;
-	}
-
-
-	return;
-}
-
-
-// Sends RDATA command to read the data
-// Wait for DRDY low before calling this function
-int32_t dataRead_byCommand(void)
+/*
+*********************************************************************************************************
+*	name:  
+*	function:    
+*	parameter: NULL
+*	The return value:  NULL
+*********************************************************************************************************
+*/
+static uint8_t ads1256_select_next_channel(uint8_t channel)
 {
-	uint8_t dataRx[DATA_LENGTH];
-
-	set_adc_CS(0);
-	adcXferByte(RDATA_OPCODE);
-	__delay_cycles(TD_DIDO_DELAY_T6);
-	dataRx[0] = adcXferByte(0x00);
-	dataRx[1] = adcXferByte(0x00);
-	dataRx[2] = adcXferByte(0x00);
-	set_adc_CS(1);
-
-	return (int32_t)( ( (dataRx[0] & 0x80) ? (0xFF000000) : (0x00000000) ) |			// Sign extend and return result
-									  ((int32_t) (dataRx[0] & 0xFF) << 16) |
-									  ((int32_t) (dataRx[1] & 0xFF) << 8 ) |
-									  ((int32_t) (dataRx[2] & 0xFF) << 0 ) );
+    uint8_t selected=0,i;
+     
+    i = (ads125x_channel_info.channel_num >= ADS1256_CHANNEL_NUM - 1)?0:ads125x_channel_info.channel_num+1;
+    for( ;i<ADS1256_CHANNEL_NUM;i++){
+        if( channel & (1<<i) ){
+            ads125x_channel_info.channel_num = i;
+            selected = 1;
+            break;
+        }   
+    }
+    if( selected == 0x00 ){
+        for(i=0;i<ads125x_channel_info.channel_num;i++){
+            if( channel & (1<<i) ){
+                ads125x_channel_info.channel_num = i; 
+                selected = 1;
+                break;
+            }   
+        } 
+    }
+    return selected;
 }
-
-
-// Reads data directly (must be in RDATAC mode)
-extern int32_t dataRead_direct(void)
+/*
+*********************************************************************************************************
+*	name: ads1256_drdy_isr
+*	function: Collection procedures
+*	parameter: NULL
+*	The return value:  NULL
+*********************************************************************************************************
+*/
+void ads1256_drdy_isr(void)
 {
-	uint8_t dataRx[DATA_LENGTH];
+    uint8_t selected;
+    uint8_t adc_result_idx = ads125x_channel_info.channel_num;
+    
+    if ( ads125x_conf.input_mode == ADS1256_SIGNGLE_INPUT ){/*  0  Single-ended input  8 channel?? 1 Differential input  4 channe */
+        selected = ads1256_select_next_channel( *(uint8_t*)&ads125x_conf.single_input_channel );
+        
+        if(selected){
+            ads1256_set_single_channel(ads125x_channel_info.channel_num);	/*Switch channel mode */
+            ads1256_write_cmd(CMD_SYNC); 
+            ads1256_write_cmd(CMD_WAKEUP); 
+        } 
+        
+        ads125x_channel_info.adc_result[adc_result_idx] = ads1256_read_result();
+        ads125x_channel_info.voltage_uv[adc_result_idx] = ads1256_conv2uv( ads125x_channel_info.adc_result[adc_result_idx]);
+    }
+    else{
+        /*DiffChannal*/ 
+         selected = ads1256_select_next_channel( *(uint8_t*)&ads125x_conf.diff_input_channel );
+         
+         if(selected){
+             ads1256_set_diff_channel(ads125x_channel_info.channel_num);	/* change DiffChannal */
+             ads1256_write_cmd(CMD_SYNC); 
+             ads1256_write_cmd(CMD_WAKEUP); 
+        }
+        ads125x_channel_info.adc_result[adc_result_idx] = ads1256_read_result();	
+        ads125x_channel_info.voltage_uv[adc_result_idx] = ads1256_conv2uv( ads125x_channel_info.adc_result[adc_result_idx]);
+    } 
+}   
 
-	set_adc_CS(0);
-
-	dataRx[0] = adcXferByte(0x00);
-	dataRx[1] = adcXferByte(0x00);
-	dataRx[2] = adcXferByte(0x00);
-
-	set_adc_CS(1);
-
-	return (int32_t) (( (dataRx[0] & 0x80) ? (0xFF000000) : (0x00000000) ) |
-									  ((int32_t) (dataRx[0] & 0xFF) << 16) |
-									  ((int32_t) (dataRx[1] & 0xFF) << 8 ) |
-									  ((int32_t) (dataRx[2] & 0xFF) << 0 ) );
+/*
+*********************************************************************************************************
+*	name:  
+*	function:    
+*	parameter: NULL
+*	The return value:  NULL
+*********************************************************************************************************
+*/
+void ads1256_channel_init(void)
+{     
+    uint8_t channel,i;
+    
+    ads125x_channel_info.channel_num = 0;
+    if ( ads125x_conf.input_mode == ADS1256_SIGNGLE_INPUT ){/*  0  Single-ended input  8 channel?? 1 Differential input  4 channe */
+        channel = *(uint8_t*)&ads125x_conf.single_input_channel; 
+        for(i=0;i<ADS1256_CHANNEL_NUM;i++){
+            if( channel &(1<<i) ){
+                ads125x_channel_info.channel_num = i;
+                break;
+            }
+        }
+        ads1256_set_single_channel(ads125x_channel_info.channel_num);
+    }
+    else{
+        channel = *(uint8_t*)&ads125x_conf.diff_input_channel; 
+        for(i=0;i<ADS1256_CHANNEL_NUM;i++){
+            if( channel &(1<<i) ){
+                ads125x_channel_info.channel_num = i;
+                break;
+            }
+        }
+        ads1256_set_diff_channel(ads125x_channel_info.channel_num);
+    } 
 }
+/*
+*********************************************************************************************************
+*	name: ads1256_init(
+*	function: The configuration parameters of ADC, gain and data rate
+*	parameter: _gain:gain 1-64
+*                      _drate:  data  rate
+*	The return value: NULL
+*********************************************************************************************************
+*/
+
+uint8_t ads1256_init(void)
+{     
+    uint8_t regs_buf[4];
+    HAL_GPIO_WritePin(CSN_GPIO_Port, CSN_Pin, GPIO_PIN_RESET);
+    HAL_NVIC_DisableIRQ(EXTI4_IRQn);
+    for(;;){
+        HAL_GPIO_WritePin(GPIOA, REST_Pin|PDWN_Pin, GPIO_PIN_RESET);
+        HAL_Delay(1);
+        HAL_GPIO_WritePin(GPIOA, REST_Pin|PDWN_Pin, GPIO_PIN_SET);
+        HAL_Delay(1);
+        
+        while(HAL_GPIO_ReadPin(DRYD_GPIO_Port,DRYD_Pin)); 
+        ads1256_read_regs(0,regs_buf,sizeof(regs_buf)); 
+        
+        if( regs_buf[1]==0x01 && regs_buf[2]==0x20 && regs_buf[3]==0xF0 ) 
+            break;
+        HAL_Delay(100);
+    } 
+    
+    while(HAL_GPIO_ReadPin(DRYD_GPIO_Port,DRYD_Pin)); 
+    regs_buf[REG_STATUS]=0xf4;//STATUS REGISTER:Auto-Calibration Enabled,Analog Input Buffer Disabled
+    regs_buf[REG_ADCON]=CLKOUT_OFF+DETECT_OFF+ads125x_conf.gain;   //ADCON=00h
+    regs_buf[REG_DRATE]=ads125x_conf.sampling_rate;
+    ads1256_write_regs(REG_STATUS,regs_buf,sizeof(regs_buf));
+    
+    while(!HAL_GPIO_ReadPin(DRYD_GPIO_Port,DRYD_Pin));
+    while(HAL_GPIO_ReadPin(DRYD_GPIO_Port,DRYD_Pin)); 
+    ads1256_read_regs(0,regs_buf,sizeof(regs_buf));
+    
+    while(HAL_GPIO_ReadPin(DRYD_GPIO_Port,DRYD_Pin));
+    ads1256_channel_init();
+    ads1256_write_cmd(CMD_SYNC);  
+    ads1256_write_cmd(CMD_WAKEUP); 
+    
+    while(HAL_GPIO_ReadPin(DRYD_GPIO_Port,DRYD_Pin)); 
+    ads1256_write_cmd(CMD_SELFCAL); //self-calibration
+    while(!HAL_GPIO_ReadPin(DRYD_GPIO_Port,DRYD_Pin));
+    while(HAL_GPIO_ReadPin(DRYD_GPIO_Port,DRYD_Pin)); 
+    
+    HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+    
+    return 1;
+} 
+
+
+
