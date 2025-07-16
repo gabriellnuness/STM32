@@ -1,6 +1,6 @@
 *Drivers/
 *Debug/
-*Startup/
+# *Startup/
 
 #*.mxproject
 *.ld
